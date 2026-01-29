@@ -743,7 +743,7 @@ stack()`
           const b = countChar(state.word, "m");
           const c = countChar(state.word, "s");
 
-          el.innerHTML += `<br/><b><a href="https://xenreference.com/index.php?title=MOS_substitution" target="_blank">MOS substitution</a> properties</b><br/>`;
+          el.innerHTML += `<br/><b><a href="https://xenreference.com/w/MOS_substitution" target="_blank">MOS substitution</a> properties</b><br/>`;
           el.innerHTML += state.profile["subst_l_ms"]
             ? `subst ${a}L(${b}m${c}s)<br/>`
             : "";
