@@ -1177,24 +1177,13 @@ stack()`
                 moreSolsBtn.disabled = true;
                 setTimeout(() => {
                   try {
-                    const moreJiTunings = wasm.more_ji_tunings(
+                    currentJiTunings = wasm.more_ji_tunings(
                       sig,
                       equave.num,
                       equave.den,
                       getSLower(),
                       getSUpper(),
                     );
-                    // Merge with existing tunings (union by string comparison)
-                    const existingSet = new Set(
-                      currentJiTunings.map((t) => JSON.stringify(t)),
-                    );
-                    for (const tuning of moreJiTunings) {
-                      const key = JSON.stringify(tuning);
-                      if (!existingSet.has(key)) {
-                        existingSet.add(key);
-                        currentJiTunings.push(tuning);
-                      }
-                    }
                     // Re-render the JI tuning table
                     jiTuningTable.innerHTML = "";
                     makeTable(jiTuningTable, currentJiTunings);

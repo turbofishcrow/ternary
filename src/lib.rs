@@ -169,6 +169,7 @@ use guide::guide_frames;
 use words::maximum_variety_is;
 use words::{CountVector, least_mode, maximum_variety, monotone_lm, monotone_ms, monotone_s0};
 
+use crate::ji::solve_step_sig_fast;
 use crate::lattice::get_unimodular_basis;
 use crate::monzo::Monzo;
 
@@ -452,6 +453,22 @@ pub fn word_to_lattice(query: String) -> Result<JsValue, JsValue> {
     }
 }
 
+// Dumb scoring function, smaller is better
+fn scoring(step_sig: &[usize], tuning: &[Monzo]) -> f64 {
+    let (l_monzo, m_monzo, s_monzo) = (tuning[0], tuning[1], tuning[2]);
+
+    if let Some(l_ratio) = l_monzo.try_to_ratio()
+        && let Some(m_ratio) = m_monzo.try_to_ratio()
+        && let Some(s_ratio) = s_monzo.try_to_ratio()
+    {
+        step_sig[0] as f64 * 1.01f64.powf((l_ratio.numer() + l_ratio.denom()) as f64)
+            + step_sig[1] as f64 * 1.01f64.powf((m_ratio.numer() + m_ratio.denom()) as f64)
+            + step_sig[2] as f64 * 1.01f64.powf((s_ratio.numer() + s_ratio.denom()) as f64)
+    } else {
+        f64::INFINITY
+    }
+}
+
 /// Get JI tunings for a step signature using 81-odd-limit intervals.
 /// This is not an exhaustive search - it only considers intervals < 300 cents
 /// and requires steps to be strictly descending in size.
@@ -463,7 +480,16 @@ pub fn sig_to_ji_tunings(
 ) -> Vec<Vec<String>> {
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
-        ji::solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound)
+        let mut tunings =
+            solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+
+        tunings.sort_by(|tuning1, tuning2| {
+            let tuning1_score = scoring(step_sig, tuning1);
+            let tuning2_score = scoring(step_sig, tuning2);
+            tuning1_score.total_cmp(&tuning2_score) // Lower is better
+        });
+        tunings.dedup();
+        tunings
             .into_iter()
             .map(|steps| {
                 steps
@@ -491,7 +517,18 @@ pub fn sig_to_ji_tunings_slow(
 ) -> Vec<Vec<String>> {
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
-        ji::solve_step_sig_slow(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound)
+        let slow =
+            ji::solve_step_sig_slow(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+        let fast =
+            ji::solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+        let mut union_ = [slow, fast].concat();
+        union_.sort_by(|tuning1, tuning2| {
+            let tuning1_score = scoring(step_sig, tuning1);
+            let tuning2_score = scoring(step_sig, tuning2);
+            tuning1_score.total_cmp(&tuning2_score)
+        });
+        union_.dedup();
+        union_
             .into_iter()
             .map(|steps| {
                 steps
