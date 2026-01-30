@@ -117,15 +117,13 @@ pub mod vector;
 pub mod words;
 
 use interval::JiRatio;
-#[cfg(feature = "wasm")]
 use itertools::Itertools;
 use ji_ratio::RawJiRatio;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 use words::Chirality;
-#[cfg(feature = "wasm")]
 use words::Letter;
-use words::{chirality, is_mos_subst_one_perm};
+use words::{chirality, is_mos_subst_one_perm, word_on_degree};
 
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
@@ -172,6 +170,7 @@ use words::{CountVector, least_mode, maximum_variety, monotone_lm, monotone_ms, 
 use crate::ji::solve_step_sig_fast;
 use crate::lattice::get_unimodular_basis;
 use crate::monzo::Monzo;
+use crate::words::mos_substitution_scales;
 
 /// Compute the determinant of a 3x3 matrix formed by three row vectors.
 /// Used to check if vectors form a unimodular basis (determinant ±1).
@@ -453,20 +452,33 @@ pub fn word_to_lattice(query: String) -> Result<JsValue, JsValue> {
     }
 }
 
-// Dumb scoring function, smaller is better
-fn scoring(step_sig: &[usize], tuning: &[Monzo]) -> f64 {
+// Dumb scoring function for tunings, higher is better
+fn score(word: &[Letter], tuning: &[Monzo]) -> f64 {
     let (l_monzo, m_monzo, s_monzo) = (tuning[0], tuning[1], tuning[2]);
-
-    if let Some(l_ratio) = l_monzo.try_to_ratio()
-        && let Some(m_ratio) = m_monzo.try_to_ratio()
-        && let Some(s_ratio) = s_monzo.try_to_ratio()
-    {
-        step_sig[0] as f64 * 1.01f64.powf((l_ratio.numer() + l_ratio.denom()) as f64)
-            + step_sig[1] as f64 * 1.01f64.powf((m_ratio.numer() + m_ratio.denom()) as f64)
-            + step_sig[2] as f64 * 1.01f64.powf((s_ratio.numer() + s_ratio.denom()) as f64)
-    } else {
-        f64::INFINITY
+    let mut score = 0.0;
+    // For every interval in the interval matrix
+    for degree in 0..word.len() {
+        for ordinal in 1..word.len() {
+            let subword = word_on_degree(word, degree, ordinal);
+            let interval_monzo: Monzo = subword
+                .into_iter()
+                .map(|i| match i {
+                    0 => l_monzo,
+                    1 => m_monzo,
+                    2 => s_monzo,
+                    _ => Monzo::UNISON,
+                })
+                .sum();
+            let interval_monzo_odds_only = interval_monzo - monzo![interval_monzo[0]];
+            score += if let Some(ratio) = interval_monzo_odds_only.try_to_ratio() {
+                // Simpler tatios => lower exponent => higher number
+                0.9f64.powf(ratio.numer() as f64 + ratio.denom() as f64)
+            } else {
+                0.0
+            };
+        }
     }
+    score
 }
 
 /// Get JI tunings for a step signature using 81-odd-limit intervals.
@@ -478,15 +490,27 @@ pub fn sig_to_ji_tunings(
     cents_lower_bound: f64,
     cents_upper_bound: f64,
 ) -> Vec<Vec<String>> {
+    let best_scale = mos_substitution_scales(step_sig)
+        .into_iter()
+        .sorted_by_key(|scale| {
+            let gfs = guide_frames(scale);
+            if let Some(simplest) = gfs.first() {
+                simplest.complexity()
+            } else {
+                usize::MAX
+            }
+        })
+        .next()
+        .unwrap();
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
         let mut tunings =
             solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
 
         tunings.sort_by(|tuning1, tuning2| {
-            let tuning1_score = scoring(step_sig, tuning1);
-            let tuning2_score = scoring(step_sig, tuning2);
-            tuning1_score.total_cmp(&tuning2_score) // Lower is better
+            let tuning1_score = score(&best_scale, tuning1);
+            let tuning2_score = score(&best_scale, tuning2);
+            tuning2_score.total_cmp(&tuning1_score) // Higher is better
         });
         tunings.dedup();
         tunings
@@ -515,6 +539,18 @@ pub fn sig_to_ji_tunings_slow(
     cents_lower_bound: f64,
     cents_upper_bound: f64,
 ) -> Vec<Vec<String>> {
+    let best_scale = mos_substitution_scales(step_sig)
+        .into_iter()
+        .sorted_by_key(|scale| {
+            let gfs = guide_frames(scale);
+            if let Some(simplest) = gfs.first() {
+                simplest.complexity()
+            } else {
+                usize::MAX
+            }
+        })
+        .next()
+        .unwrap();
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
         let slow =
@@ -523,9 +559,9 @@ pub fn sig_to_ji_tunings_slow(
             ji::solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
         let mut union_ = [slow, fast].concat();
         union_.sort_by(|tuning1, tuning2| {
-            let tuning1_score = scoring(step_sig, tuning1);
-            let tuning2_score = scoring(step_sig, tuning2);
-            tuning1_score.total_cmp(&tuning2_score)
+            let tuning1_score = score(&best_scale, tuning1);
+            let tuning2_score = score(&best_scale, tuning2);
+            tuning2_score.total_cmp(&tuning1_score) // Higher is better
         });
         union_.dedup();
         union_
