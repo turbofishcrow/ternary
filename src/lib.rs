@@ -117,15 +117,13 @@ pub mod vector;
 pub mod words;
 
 use interval::JiRatio;
-#[cfg(feature = "wasm")]
 use itertools::Itertools;
 use ji_ratio::RawJiRatio;
 #[cfg(feature = "wasm")]
 use wasm_bindgen::prelude::*;
 use words::Chirality;
-#[cfg(feature = "wasm")]
 use words::Letter;
-use words::{chirality, is_mos_subst_one_perm};
+use words::{chirality, is_mos_subst_one_perm, word_on_degree};
 
 #[cfg(feature = "wasm")]
 #[wasm_bindgen]
@@ -169,8 +167,10 @@ use guide::guide_frames;
 use words::maximum_variety_is;
 use words::{CountVector, least_mode, maximum_variety, monotone_lm, monotone_ms, monotone_s0};
 
+use crate::ji::solve_step_sig_fast;
 use crate::lattice::get_unimodular_basis;
 use crate::monzo::Monzo;
+use crate::words::mos_substitution_scales;
 
 /// Compute the determinant of a 3x3 matrix formed by three row vectors.
 /// Used to check if vectors form a unimodular basis (determinant ±1).
@@ -452,6 +452,35 @@ pub fn word_to_lattice(query: String) -> Result<JsValue, JsValue> {
     }
 }
 
+// Dumb scoring function for tunings, higher is better
+fn score(word: &[Letter], tuning: &[Monzo]) -> f64 {
+    let (l_monzo, m_monzo, s_monzo) = (tuning[0], tuning[1], tuning[2]);
+    let mut score = 0.0;
+    // For every interval in the interval matrix
+    for degree in 0..word.len() {
+        for ordinal in 1..word.len() {
+            let subword = word_on_degree(word, degree, ordinal);
+            let interval_monzo: Monzo = subword
+                .into_iter()
+                .map(|i| match i {
+                    0 => l_monzo,
+                    1 => m_monzo,
+                    2 => s_monzo,
+                    _ => Monzo::UNISON,
+                })
+                .sum();
+            let interval_monzo_odds_only = interval_monzo - monzo![interval_monzo[0]];
+            score += if let Some(ratio) = interval_monzo_odds_only.try_to_ratio() {
+                // Simpler tatios => lower exponent => higher number
+                0.9f64.powf(ratio.numer() as f64 + ratio.denom() as f64)
+            } else {
+                0.0
+            };
+        }
+    }
+    score
+}
+
 /// Get JI tunings for a step signature using 81-odd-limit intervals.
 /// This is not an exhaustive search - it only considers intervals < 300 cents
 /// and requires steps to be strictly descending in size.
@@ -461,9 +490,30 @@ pub fn sig_to_ji_tunings(
     cents_lower_bound: f64,
     cents_upper_bound: f64,
 ) -> Vec<Vec<String>> {
+    let best_scale = mos_substitution_scales(step_sig)
+        .into_iter()
+        .sorted_by_key(|scale| {
+            let gfs = guide_frames(scale);
+            if let Some(simplest) = gfs.first() {
+                simplest.complexity()
+            } else {
+                usize::MAX
+            }
+        })
+        .next()
+        .unwrap();
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
-        ji::solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound)
+        let mut tunings =
+            solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+
+        tunings.sort_by(|tuning1, tuning2| {
+            let tuning1_score = score(&best_scale, tuning1);
+            let tuning2_score = score(&best_scale, tuning2);
+            tuning2_score.total_cmp(&tuning1_score) // Higher is better
+        });
+        tunings.dedup();
+        tunings
             .into_iter()
             .map(|steps| {
                 steps
@@ -489,9 +539,32 @@ pub fn sig_to_ji_tunings_slow(
     cents_lower_bound: f64,
     cents_upper_bound: f64,
 ) -> Vec<Vec<String>> {
+    let best_scale = mos_substitution_scales(step_sig)
+        .into_iter()
+        .sorted_by_key(|scale| {
+            let gfs = guide_frames(scale);
+            if let Some(simplest) = gfs.first() {
+                simplest.complexity()
+            } else {
+                usize::MAX
+            }
+        })
+        .next()
+        .unwrap();
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
     if let Some(equave_monzo) = equave_monzo {
-        ji::solve_step_sig_slow(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound)
+        let slow =
+            ji::solve_step_sig_slow(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+        let fast =
+            ji::solve_step_sig_fast(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
+        let mut union_ = [slow, fast].concat();
+        union_.sort_by(|tuning1, tuning2| {
+            let tuning1_score = score(&best_scale, tuning1);
+            let tuning2_score = score(&best_scale, tuning2);
+            tuning2_score.total_cmp(&tuning1_score) // Higher is better
+        });
+        union_.dedup();
+        union_
             .into_iter()
             .map(|steps| {
                 steps

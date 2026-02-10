@@ -15,7 +15,7 @@ default = []
 wasm = ["dep:wasm-bindgen", "dep:serde-wasm-bindgen", "dep:web-sys", "dep:console_error_panic_hook"]
 
 [dependencies]
-stacker = "0.1.15"
+stacker = "0.1.23"
 
 itertools = "0.14.0"
 
@@ -37,7 +37,7 @@ wasm-bindgen-test = "0.3.34"
 
 [dev-dependencies]
 wasm-bindgen-test = "0.3.34"
-criterion = "0.8.1"
+criterion = "0.8.2"
 
 [[bench]]
 name = "bench"
