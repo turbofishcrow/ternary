@@ -471,7 +471,7 @@ fn score(word: &[Letter], tuning: &[Monzo]) -> f64 {
                 .sum();
             let interval_monzo_odds_only = interval_monzo - monzo![interval_monzo[0]];
             score += if let Some(ratio) = interval_monzo_odds_only.try_to_ratio() {
-                // Simpler tatios => lower exponent => higher number
+                // Simpler ratios => lower exponent => higher number
                 0.9f64.powf(ratio.numer() as f64 + ratio.denom() as f64)
             } else {
                 0.0
@@ -591,7 +591,6 @@ pub fn sig_to_ed_tunings(
 ) -> Vec<Vec<String>> {
     let ed_tunings =
         crate::equal::ed_tunings_for_ternary(step_sig, equave, ed_bound, s_lower, s_upper);
-    let is_octave = equave.numer() == 2 && equave.denom() == 1;
     ed_tunings
         .into_iter()
         .map(|v| {
@@ -600,7 +599,7 @@ pub fn sig_to_ed_tunings(
                 .enumerate()
                 .map(|(i, steps)| step_sig[i] as i32 * steps)
                 .sum();
-            if is_octave {
+            if equave == RawJiRatio::OCTAVE {
                 v.iter().map(|i| format!("{i}\\{ed}")).collect::<Vec<_>>()
             } else {
                 v.iter()
