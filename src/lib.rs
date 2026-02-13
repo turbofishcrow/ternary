@@ -551,8 +551,7 @@ pub fn sig_to_ji_tunings_slow(
         })
         .next()
         .unwrap();
-    let equave_monzo = Monzo::try_from_ratio(equave).ok();
-    if let Some(equave_monzo) = equave_monzo {
+    if let Ok(equave_monzo) = Monzo::try_from_ratio(equave) {
         let slow =
             ji::solve_step_sig_slow(step_sig, equave_monzo, cents_lower_bound, cents_upper_bound);
         let fast =
