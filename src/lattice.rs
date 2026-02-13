@@ -114,7 +114,7 @@ impl IntoIterator for PitchClassLatticeBasis {
 }
 
 /// A struct representing a substring of a row-by-row traversal of a lattice parallelogram.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ParallelogramSubstring {
     row_count: i32,
     full_row_len: i32,

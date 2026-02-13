@@ -154,6 +154,7 @@ const STEP_LETTERS: [&str; 12] = [
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", // >= 11
 ];
 
+use std::cmp::Ordering;
 use std::cmp::min;
 use std::collections::HashSet;
 
@@ -481,6 +482,47 @@ fn score(word: &[Letter], tuning: &[Monzo]) -> f64 {
     score
 }
 
+fn sort_scales(scale1: &[Letter], scale2: &[Letter]) -> Ordering {
+    let complexity1 = if let Some(simplest) = guide_frames(scale1).first() {
+        simplest.complexity()
+    } else {
+        usize::MAX
+    };
+    let ps1 = if let Some((pitch_classes, initial_basis)) = lattice::try_pitch_class_lattice(scale1)
+    {
+        let pitch_class_refs: Vec<&[i32]> = pitch_classes.iter().map(|v| v.as_slice()).collect();
+        if let Some((ps1, _)) =
+            lattice::parallelogram_substring_info(&pitch_class_refs, &initial_basis)
+        {
+            Some(ps1)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let complexity2 = if let Some(simplest) = guide_frames(scale2).first() {
+        simplest.complexity()
+    } else {
+        usize::MAX
+    };
+    let ps2 = if let Some((pitch_classes, initial_basis)) = lattice::try_pitch_class_lattice(scale2)
+    {
+        let pitch_class_refs: Vec<&[i32]> = pitch_classes.iter().map(|v| v.as_slice()).collect();
+        if let Some((ps1, _)) =
+            lattice::parallelogram_substring_info(&pitch_class_refs, &initial_basis)
+        {
+            Some(ps1)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    // Reverse ps1 and ps2 since None < Some and we want Some to come first
+    ps2.cmp(&ps1).then(complexity1.cmp(&complexity2))
+}
+
 /// Get JI tunings for a step signature using 81-odd-limit intervals.
 /// This is not an exhaustive search - it only considers intervals < 300 cents
 /// and requires steps to be strictly descending in size.
@@ -492,14 +534,7 @@ pub fn sig_to_ji_tunings(
 ) -> Vec<Vec<String>> {
     let best_scale = mos_substitution_scales(step_sig)
         .into_iter()
-        .sorted_by_key(|scale| {
-            let gfs = guide_frames(scale);
-            if let Some(simplest) = gfs.first() {
-                simplest.complexity()
-            } else {
-                usize::MAX
-            }
-        })
+        .sorted_by(|scale1, scale2| sort_scales(scale1, scale2))
         .next()
         .unwrap();
     let equave_monzo = Monzo::try_from_ratio(equave).ok();
@@ -669,14 +704,9 @@ pub fn sig_result(
     Ok(to_value(&SigResult {
         profiles: scales
             .iter()
+            // prioritize parallelogram substring scales
+            .sorted_by(|scale1, scale2| sort_scales(scale1, scale2))
             .map(|scale| word_to_profile(scale))
-            .sorted_by_key(|profile| {
-                if let Some(guide) = &profile.structure {
-                    guide.complexity
-                } else {
-                    u16::MAX
-                }
-            })
             .collect(),
         ji_tunings: sig_to_ji_tunings(&step_sig, equave, s_lower, s_upper),
         ed_tunings: sig_to_ed_tunings(&step_sig, equave, ed_bound, s_lower, s_upper),
